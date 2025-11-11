@@ -1,0 +1,79 @@
+# Import necessary libraries
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Embedding, Lambda, Dense
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+
+# Sample corpus
+corpus = [
+    "the cat sat on the mat",
+    "the dog sat on the log",
+    "cats and dogs are great pets",
+    "the mat is soft and warm"
+]
+
+# Preprocess text: Tokenization and lowercasing
+tokenizer = Tokenizer()
+tokenizer.fit_on_texts(corpus)
+total_words = len(tokenizer.word_index) + 1  # +1 for padding
+
+# Convert text to sequences
+sequences = tokenizer.texts_to_sequences(corpus)
+
+## Stage b: Generate Training Data
+def generate_training_data(sequences, window_size=2):
+    contexts = []
+    targets = []
+    
+    for sequence in sequences:
+        for i in range(window_size, len(sequence) - window_size):
+            context = sequence[i - window_size:i] + sequence[i + 1:i + window_size + 1]
+            target = sequence[i]
+            contexts.append(context)
+            targets.append(target)
+    
+    return np.array(contexts), np.array(targets)
+
+X, y = generate_training_data(sequences)
+
+# Pad sequences for consistent input shape
+X = pad_sequences(X, maxlen=4)  # Adjust maxlen based on context size
+
+## Stage c: Train Model
+# Define CBOW model architecture
+model = Sequential()
+model.add(Embedding(input_dim=total_words, output_dim=10, input_length=4))
+model.add(Lambda(lambda x: tf.reduce_mean(x, axis=1)))  # Average embeddings
+model.add(Dense(total_words, activation='softmax'))
+
+# Compile the model
+model.compile(loss='sparse_categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+
+# Train the model
+model.fit(X, y, epochs=100)
+
+## Stage d: Output
+# Get word embeddings from the trained model
+word_embeddings = model.layers[0].get_weights()[0]
+
+# Create a mapping of words to their embeddings
+word_index = tokenizer.word_index
+
+
+print('Vocabulary Size:', len(word_index))
+print('Vocabulary Sample:', list(word_index.items())[:10],"\n\n")
+
+
+embeddings_dict = {word: word_embeddings[idx] for word, idx in word_index.items()}
+
+# Output the embeddings for each word in a structured format
+print("{:<10} | {}".format("Word", "Embedding"))
+print("-" * 40)
+for word, embedding in embeddings_dict.items():
+    print("{:<10} | {}".format(word, np.round(embedding, 3)))
+
+
+

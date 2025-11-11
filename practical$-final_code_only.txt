@@ -1,0 +1,123 @@
+#installations
+!pip install scikit-learn tensorflow matplotlib numpy
+
+!pip install pandas
+
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+import matplotlib.pyplot as plt
+from sklearn.metrics import accuracy_score
+from tensorflow.keras.optimizers import Adam
+from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras import Model, Sequential
+from tensorflow.keras.layers import Dense, Dropout
+from sklearn.model_selection import train_test_split
+from tensorflow.keras.losses import MeanSquaredError
+
+# Load dataset
+PATH_TO_DATA = 'http://storage.googleapis.com/download.tensorflow.org/data/ecg.csv'
+data = pd.read_csv(PATH_TO_DATA, header=None)
+data.head()
+
+#finding shape of the dataset
+data.shape
+
+#splitting training and testing dataset
+features = data.drop(140, axis=1)
+target = data[140]
+x_train, x_test, y_train, y_test = train_test_split(
+    features, target, test_size=0.2, stratify=target
+)
+train_index = y_train[y_train == 1].index
+train_data = x_train.loc[train_index]
+
+#scaling the data using MinMaxScaler
+min_max_scaler = MinMaxScaler(feature_range=(0, 1))
+x_train_scaled = min_max_scaler.fit_transform(train_data.copy())
+x_test_scaled = min_max_scaler.transform(x_test.copy())
+
+#creating autoencoder subclass by extending Model class from keras
+class AutoEncoder(Model):
+  def __init__(self, output_units, ldim=8):
+    super().__init__()
+    self.encoder = Sequential([
+      Dense(64, activation='relu'),
+      Dropout(0.05),                     
+      Dense(32, activation='relu'),
+      Dropout(0.05),
+      Dense(16, activation='relu'),
+      Dropout(0.05),
+      Dense(ldim, activation='relu')
+    ])
+    self.decoder = Sequential([
+      Dense(16, activation='relu'),
+      Dropout(0.05),
+      Dense(32, activation='relu'),
+      Dropout(0.05),
+      Dense(64, activation='relu'),
+      Dropout(0.05),
+      Dense(output_units, activation='sigmoid')
+    ])
+  
+  def call(self, inputs):
+    encoded = self.encoder(inputs)
+    decoded = self.decoder(encoded)
+    return decoded
+
+# Initialize and compile model
+autoencoder = AutoEncoder(output_units=x_train_scaled.shape[1])
+autoencoder.compile(optimizer=Adam(), loss=MeanSquaredError())  # ✅ changed loss to MSE
+
+# 👇 Run a dummy forward pass ONCE to build encoder + decoder
+_ = autoencoder(x_train_scaled[:1])   # <— This builds both Sequential submodels
+
+# ✅ Now show the summary
+autoencoder.summary()
+
+# Training the autoencoder
+history = autoencoder.fit(
+    x_train_scaled, x_train_scaled,
+    epochs=50,
+    batch_size=32,
+    validation_data=(x_test_scaled, x_test_scaled),
+    verbose=1
+)
+
+# Plot training and validation loss
+plt.figure(figsize=(8,5))
+plt.plot(history.history['loss'], label='Training Loss')
+plt.plot(history.history['val_loss'], label='Validation Loss')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.legend()
+plt.title('Autoencoder Training and Validation Loss')
+plt.show()
+
+# Reconstruction and anomaly detection
+reconstructions = autoencoder.predict(x_test_scaled)
+mse = np.mean(np.square(x_test_scaled - reconstructions), axis=1)
+
+# Define threshold for anomaly detection
+threshold = np.mean(mse) + 2*np.std(mse)
+print("Reconstruction Error Threshold:", threshold)
+
+# Predict anomalies
+predictions = [1 if e > threshold else 0 for e in mse]
+print("Number of anomalies detected:", np.sum(predictions))
+
+# Plot reconstruction error distribution
+!pip install seaborn
+import seaborn as sns
+
+plt.figure(figsize=(8,5))
+sns.histplot(mse, bins=50, kde=True)
+plt.axvline(threshold, color='r', linestyle='--', label='Threshold')
+plt.title("Reconstruction Error Distribution")
+plt.xlabel("MSE Reconstruction Error")
+plt.ylabel("Count")
+plt.legend()
+plt.show()
+
+
+
